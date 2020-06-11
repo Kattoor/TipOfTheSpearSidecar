@@ -14,6 +14,7 @@ import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.math.BigInteger;
 import java.net.InetSocketAddress;
@@ -158,7 +159,7 @@ public class Main {
 
         /* Clear the inputsStream so a receivePacket call does not retrieve old data still in the buffer */
         if (socket.getInputStream().available() > 0)
-            socket.getInputStream().readAllBytes();
+            receivePacket(socket);
 
         String[] routeSplit = requestUri.split("\\?");
         String route = routeSplit.length >= 1 ? routeSplit[0] : "";
@@ -178,7 +179,7 @@ public class Main {
 
                 response = actionResponse.orElse("-1");
                 break;
-            case "/rooms":
+            case "/server":
                 out = new Packet(7, "");
                 out.send(socket);
 
@@ -200,6 +201,9 @@ public class Main {
                                         inRoom.getGameLength(),
                                         inRoom.getNumOfBots())).collect(Collectors.toList())));
                 response = new Gson().toJson(outRooms.orElse(null));
+                break;
+            case "/ping":
+                response = "ok";
                 break;
             case "/current-map":
                 out = new Packet(19, "{\"room\": \"" + params[1] + "\"}");
