@@ -1,26 +1,30 @@
 package com.catthoor.TotSServerSideCar;
 
 import com.catthoor.TotSServerSideCar.actions.*;
-import com.catthoor.TotSServerSideCar.models.PlayerInfo;
+import com.catthoor.TotSServerSideCar.models.in.PlayerInfo;
 import com.catthoor.TotSServerSideCar.models.in.rooms.Room;
 import com.catthoor.TotSServerSideCar.models.in.rooms.RoomInfoResponse;
 import com.catthoor.TotSServerSideCar.models.in.rooms.Rooms;
+import com.catthoor.TotSServerSideCar.models.out.PlayerInfoOut;
+import com.catthoor.TotSServerSideCar.models.out.rooms.RoomOut;
+import com.catthoor.TotSServerSideCar.models.out.rooms.RoomsOut;
 import com.catthoor.TotSServerSideCar.parsers.PacketDataDeserializer;
+import com.google.gson.Gson;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 
 import java.io.IOException;
 import java.io.OutputStream;
+import java.math.BigInteger;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
+import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Executors;
-import java.util.concurrent.LinkedBlockingQueue;
 import java.util.stream.Collectors;
 
 public class Main {
@@ -86,11 +90,24 @@ public class Main {
         Packet acceptConnectionPacket = receivePacket(socket);
         handlePacket(acceptConnectionPacket);
 
+        String authenticationKey = generateAuthenticationKey();
+        Config.authenticationKey = authenticationKey;
+        System.out.println("================ AUTHENTICATION KEY ================");
+        System.out.println("| " + authenticationKey + " |");
+        System.out.println("====================================================");
+
         /* FromMS_SyncData */
         Packet syncDataPacket = receivePacket(socket);
         handlePacket(syncDataPacket);
 
         startHttpServer();
+    }
+
+    private String generateAuthenticationKey() {
+        SecureRandom random = new SecureRandom();
+        byte[] bytes = new byte[20];
+        random.nextBytes(bytes);
+        return new BigInteger(1, bytes).toString();
     }
 
     private Packet receivePacket(Socket socket) throws IOException {
@@ -99,8 +116,7 @@ public class Main {
         int bytesRead = socket.getInputStream().read(buffer);
 
         byte[] messageInBytes = new byte[bytesRead];
-        if (messageInBytes.length >= 0)
-            System.arraycopy(buffer, 0, messageInBytes, 0, messageInBytes.length);
+        System.arraycopy(buffer, 0, messageInBytes, 0, messageInBytes.length);
 
         final String message = new String(messageInBytes, StandardCharsets.US_ASCII);
         String json = message.split(Packet.endDataString)[0];
@@ -114,7 +130,7 @@ public class Main {
     }
 
     private void startHttpServer() throws IOException {
-        HttpServer server = HttpServer.create(new InetSocketAddress("192.168.10.132", 8080), 0);
+        HttpServer server = HttpServer.create(new InetSocketAddress("localhost", 8080), 0);
 
         server.createContext("/", this::route);
 
@@ -147,6 +163,10 @@ public class Main {
         String[] routeSplit = requestUri.split("\\?");
         String route = routeSplit.length >= 1 ? routeSplit[0] : "";
         String[] params = routeSplit.length >= 2 ? routeSplit[1].split("=") : new String[]{};
+        String authKey = exchange.getRequestHeaders().get("authKey").get(0);
+
+        if (!authKey.equals(Config.authenticationKey))
+            return;
 
         switch (requestUri.split("\\?")[0]) {
             case "/playercount":
@@ -158,18 +178,28 @@ public class Main {
 
                 response = actionResponse.orElse("-1");
                 break;
-            case "/room-ids":
+            case "/rooms":
                 out = new Packet(7, "");
                 out.send(socket);
 
                 in = receivePacket(socket);
-                actionResponse = PacketDataDeserializer.deserialize(in, Rooms.class)
-                        .map(rooms -> rooms.getRooms()
-                                .stream()
-                                .map(room -> room.getRoomName() + "\t" + room.getRoomId())
-                                .collect(Collectors.joining(", ")));
 
-                response = actionResponse.orElse("No rooms");
+                Optional<Rooms> receivedRooms = PacketDataDeserializer.deserialize(in, Rooms.class);
+                Optional<RoomsOut> outRooms = receivedRooms.map(inRooms ->
+                        new RoomsOut(inRooms.getRooms().stream().map(inRoom ->
+                                new RoomOut(
+                                        inRoom.getGameMode(),
+                                        inRoom.getRegion(),
+                                        inRoom.getSessionType(),
+                                        inRoom.getMap(),
+                                        inRoom.getRoomName(),
+                                        inRoom.getBlueTeam().stream().map(playerInfo -> new PlayerInfoOut(playerInfo.getDisplayName())).collect(Collectors.toList()),
+                                        inRoom.getRedTeam().stream().map(playerInfo -> new PlayerInfoOut(playerInfo.getDisplayName())).collect(Collectors.toList()),
+                                        inRoom.getMapRotation(),
+                                        inRoom.getMaxPlayer(),
+                                        inRoom.getGameLength(),
+                                        inRoom.getNumOfBots())).collect(Collectors.toList())));
+                response = new Gson().toJson(outRooms.orElse(null));
                 break;
             case "/current-map":
                 out = new Packet(19, "{\"room\": \"" + params[1] + "\"}");

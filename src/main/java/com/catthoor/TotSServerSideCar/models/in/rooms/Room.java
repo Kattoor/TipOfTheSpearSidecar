@@ -1,7 +1,7 @@
 package com.catthoor.TotSServerSideCar.models.in.rooms;
 
-import com.catthoor.TotSServerSideCar.models.PlayerInfo;
-import com.catthoor.TotSServerSideCar.models.WeaponInfo;
+import com.catthoor.TotSServerSideCar.models.in.WeaponInfo;
+import com.catthoor.TotSServerSideCar.models.in.PlayerInfo;
 import com.google.gson.annotations.SerializedName;
 
 import java.util.List;

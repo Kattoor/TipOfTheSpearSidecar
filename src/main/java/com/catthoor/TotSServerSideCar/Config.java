@@ -1,5 +1,7 @@
 package com.catthoor.TotSServerSideCar;
 
+import java.math.BigInteger;
+
 public class Config {
 
     public final static int port = 1113;
@@ -8,4 +10,5 @@ public class Config {
     public static String username = "";
     public static String password = "";
     public static String ip = "";
+    public static String authenticationKey;
 }
