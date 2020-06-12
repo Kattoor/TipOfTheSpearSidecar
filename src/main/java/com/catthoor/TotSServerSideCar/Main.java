@@ -14,12 +14,15 @@ import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.OutputStream;
 import java.math.BigInteger;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.List;
@@ -91,7 +94,12 @@ public class Main {
         Packet acceptConnectionPacket = receivePacket(socket);
         handlePacket(acceptConnectionPacket);
 
-        String authenticationKey = generateAuthenticationKey();
+        String authenticationKey = loadAuthenticationKey().orElseGet(() -> {
+            String generatedKey = generateAuthenticationKey();
+            saveAuthenticationKey(generatedKey);
+            return generatedKey;
+        });
+
         Config.authenticationKey = authenticationKey;
         System.out.println("================ AUTHENTICATION KEY ================");
         System.out.println("| " + authenticationKey + " |");
@@ -109,6 +117,27 @@ public class Main {
         byte[] bytes = new byte[20];
         random.nextBytes(bytes);
         return new BigInteger(1, bytes).toString();
+    }
+
+    private Optional<String> loadAuthenticationKey() {
+        try {
+            final Path filePath = Paths.get("authenticationKey");
+            return Files.exists(filePath)
+                    ? Optional.of(Files.readString(filePath))
+                    : Optional.empty();
+        } catch (IOException e) {
+            e.printStackTrace();
+            return Optional.empty();
+        }
+    }
+
+    private void saveAuthenticationKey(String authenticationKey) {
+        try {
+            final Path filePath = Paths.get("authenticationKey");
+            Files.writeString(filePath, authenticationKey);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
     }
 
     private Packet receivePacket(Socket socket) throws IOException {
@@ -131,7 +160,9 @@ public class Main {
     }
 
     private void startHttpServer() throws IOException {
-        HttpServer server = HttpServer.create(new InetSocketAddress("localhost", 8080), 0);
+        String localIp = InetAddress.getLocalHost().getHostAddress();
+
+        HttpServer server = HttpServer.create(new InetSocketAddress(localIp, 8080), 0);
 
         server.createContext("/", this::route);
 
@@ -139,7 +170,7 @@ public class Main {
 
         server.start();
 
-        System.out.println("Listening for HTTP messages on port 8080");
+        System.out.println("Listening for HTTP messages at " + localIp + ":8080");
     }
 
     private void route(HttpExchange exchange) throws IOException {
@@ -162,7 +193,6 @@ public class Main {
             receivePacket(socket);
 
         String[] routeSplit = requestUri.split("\\?");
-        String route = routeSplit.length >= 1 ? routeSplit[0] : "";
         String[] params = routeSplit.length >= 2 ? routeSplit[1].split("=") : new String[]{};
         String authKey = exchange.getRequestHeaders().get("authKey").get(0);
 
@@ -204,6 +234,7 @@ public class Main {
                 break;
             case "/ping":
                 response = "ok";
+
                 break;
             case "/current-map":
                 out = new Packet(19, "{\"room\": \"" + params[1] + "\"}");
